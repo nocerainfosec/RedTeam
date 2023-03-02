@@ -46,3 +46,6 @@ Pay attention to any spaces inside your path. Better put the executables in doub
 ## Disclamer
 
 This is developed for red teamers in case it would help you in one of their red team exercises. DO NOT USE IT FOR UNLAWFUL ACTIVITY.
+
+## Credits
+https://github.com/marduc812/Win10CredsThief for the Original Project in American English Language.
