@@ -1,6 +1,6 @@
 # Red Team Scripts
 While some of the scripts may be more general-purpose and can be modified for use in a red teaming situation, others may be more specifically created for red teaming. Warning! Only for educational purposes! it is not meant to be used for any unlawful purposes.
-_See [nocerainformatica.com.br](https://nocerainformatica.com.br/) for a our services._
+_See [nocerainfosec.com.br](https://nocerainfosec.com.br/) for a our services._
 
 # About Me
 Hello, my name is Guilherme. I am an Security Reseacher and Red Teamer, i do Offensive Security Engagements at [Nocera Labs](https://www.nocerainfosec.com.br/). I enjoy making scripts for my engagements and I have decided to share it with you. Hope you like it!
