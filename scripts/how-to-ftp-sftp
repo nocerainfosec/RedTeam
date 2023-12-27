@@ -1,0 +1,1 @@
+curl -sL domain/*install.sh | sudo bash
