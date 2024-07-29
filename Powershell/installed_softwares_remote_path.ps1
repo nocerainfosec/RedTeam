@@ -1,3 +1,14 @@
+<#
+.SYNOPSIS
+    Este Script lista os programas instalados no Windows e grava em uma pasta remota.
+
+.DESCRIPTION
+    O script recupera informações sobre os aplicativos instalados consultando o registro do Windows. As informações coletadas incluem apenas o nome do aplicativo. O script também coleta informações sobre o nome do computador e o nome de usuário da máquina.
+
+.AUTHOR
+    Guilherme Nocera - Red Team - Security Researcher - Nocera Infosec
+#>
+
 # Defina o local do domínio para salvar os resultados
 $localDominio = "\\seudominio\pastaCompartilhada"
 # Obtenha o nome do computador e o usuário atual
