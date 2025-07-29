@@ -13,7 +13,6 @@ echo "🔧 Updating and installing tools..."
 apt update && apt install -y \
     wrk \
     curl \
-    iperf3 \
     git \
     golang-go \
     unzip \
