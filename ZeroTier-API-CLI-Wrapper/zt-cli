@@ -1,0 +1,266 @@
+#!/usr/bin/env bash
+
+# --- Boas Práticas ---
+# Sai imediatamente se um comando falhar.
+set -e
+# Faz com que um pipeline (ex: curl | jq) falhe se qualquer comando nele falhar.
+set -o pipefail
+# Trata variáveis não definidas como um erro.
+set -o nounset
+
+# --- Configuração ---
+readonly BASE_URL="https://api.zerotier.com/api/v1"
+# Cache para o UserID
+MY_USER_ID=""
+
+# --- Helper: Mostrar Ajuda com Banner ---
+function show_usage() {
+# Banner ASCII (Fonte: 'small')
+cat <<'EOF'
+__________ __         .__  .__ 
+\____    //  |_  ____ |  | |__|
+  /     /\   __\/ ___\|  | |  |
+ /     /_ |  | \  \___|  |_|  |
+/_______ \|__|  \___  >____/__|
+        \/          \/  
+ZeroTier API CLI Wrapper by NoceraInfosec
+EOF
+echo ""
+echo "Usage: $0 <command> [arguments...]"
+echo ""
+echo "Comandos (Network):"
+echo "  status                         Mostra o status da conta (bom para pegar seu userID)"
+echo "  list-networks                  Lista todas as suas networks"
+echo "  get-network <network-id>       Obtém detalhes de uma network"
+echo "  create-network [json-data]     Cria uma nova network. Ex: '{\"name\": \"minha-net\"}'"
+echo "  update-network <network-id> <json-data> Atualiza uma network. Ex: '{\"name\": \"novo-nome\"}'"
+echo "  delete-network <network-id>    Deleta uma network"
+echo ""
+echo "Comandos (Member):"
+echo "  list-members <network-id>      Lista todos os membros de uma network"
+echo "  get-member <network-id> <member-id>    Obtém um membro específico"
+echo "  update-member <network-id> <member-id> <json-data> Atualiza um membro. Ex: '{\"name\": \"meu-pc\"}'"
+echo "  delete-member <network-id> <member-id> Deleta (kick) um membro da network"
+echo ""
+echo "Comandos (User):"
+echo "  get-my-user                    Obtém os dados do seu usuário (logado)"
+echo "  update-my-user <json-data>     Atualiza seu usuário. Ex: '{\"displayName\": \"Meu Nome\"}'"
+echo "  add-token <json-data>          Adiciona um novo API token. Ex: '{\"tokenName\": \"meu-token\"}'"
+echo "  delete-token <token-name>      Deleta um API token pelo nome"
+echo "  delete-my-user                 !! CUIDADO !! Deleta sua conta de usuário"
+echo ""
+echo "Comandos (Organization):"
+echo "  get-my-org                     Obtém os dados da sua organização"
+echo "  get-org-by-id <org-id>         Obtém dados da organização pelo ID"
+echo "  list-org-members <org-id>      Lista os membros da organização"
+echo "  list-invitations               Lista todos os convites pendentes da organização"
+echo "  invite-user <json-data>        Convida um usuário. Ex: '{\"email\": \"usuario@exemplo.com\"}'"
+echo "  get-invitation <invite-id>     Obtém detalhes de um convite"
+echo "  accept-invitation <invite-id>  Aceita um convite"
+echo "  decline-invitation <invite-id> Rejeita um convite"
+echo ""
+echo "Comandos (Util):"
+echo "  get-random-token               Gera um token aleatório (como o da UI web)"
+echo ""
+echo "Notas:"
+echo " - A variável de ambiente ZEROTIER_TOKEN deve estar definida."
+echo " - 'jq' (sudo apt install jq) é recomendado para a saída JSON ficar legível."
+}
+
+# --- Função Core da API ---
+# $1 = Método HTTP (GET, POST, DELETE)
+# $2 = Caminho da API (ex: /network, /network/12345)
+# $3 = Dados JSON (opcional, use "" se não houver)
+function zt_api_call() {
+  local method="$1"
+  local path="$2"
+  # Use ${3:-} para compatibilidade com 'set -o nounset' caso $3 não seja passado
+  local data="${3:-}" 
+
+  # Verifica se ZEROTIER_TOKEN está definido (embora 'nounset' já deva pegar isso)
+  if [ -z "${ZEROTIER_TOKEN:-}" ]; then
+    echo "Erro: A variável de ambiente ZEROTIER_TOKEN não está definida." >&2
+    exit 1
+  fi
+
+  if [ -n "$data" ]; then
+    curl -s -X "$method" \
+         -H "Authorization: token $ZEROTIER_TOKEN" \
+         -H "Content-Type: application/json" \
+         -d "$data" \
+         "$BASE_URL$path"
+  else
+    curl -s -X "$method" \
+         -H "Authorization: token $ZEROTIER_TOKEN" \
+         "$BASE_URL$path"
+  fi
+}
+
+# --- Helper: Pega ID do Usuário ---
+function get_my_user_id() {
+  # Verifica se o cache ${MY_USER_ID:-} está vazio
+  if [ -z "${MY_USER_ID:-}" ]; then
+    # O 'pipefail' garante que se o curl falhar, o script falha
+    MY_USER_ID=$(zt_api_call "GET" "/status" "" | jq -r .user.id)
+  fi
+  if [ -z "$MY_USER_ID" ] || [ "$MY_USER_ID" == "null" ]; then
+     echo "Erro: Não foi possível obter o ID do usuário. Verifique seu token." >&2
+     exit 1
+  fi
+  echo "$MY_USER_ID"
+}
+
+# --- Função Principal ---
+function main() {
+  # Verifica o JQ (dependência)
+  if ! command -v jq &> /dev/null; then
+    readonly JQ_COMMAND="cat"
+    echo "Aviso: 'jq' não está instalado. A saída será JSON puro." >&2
+    echo "Instale com: sudo apt install jq" >&2
+  else
+    readonly JQ_COMMAND="jq"
+  fi
+
+  # Verifica se um comando foi passado
+  if [ -z "${1:-}" ]; then
+    show_usage
+    exit 1
+  fi
+
+  local COMMAND="$1"
+  shift # Move os argumentos, $1 agora é o primeiro *parâmetro*
+
+  # --- Roteador de Comandos ---
+  case "$COMMAND" in
+    # --- Network ---
+    status)
+      zt_api_call "GET" "/status" | $JQ_COMMAND
+      ;;
+    list-networks)
+      zt_api_call "GET" "/network" | $JQ_COMMAND
+      ;;
+    get-network)
+      if [ -z "${1:-}" ]; then echo "Erro: <network-id> é obrigatório." >&2; exit 1; fi
+      zt_api_call "GET" "/network/$1" | $JQ_COMMAND
+      ;;
+    create-network)
+      # Usa '{}' como JSON padrão se $1 não for fornecido
+      local data="${1:-'{}'}" 
+      zt_api_call "POST" "/network" "$data" | $JQ_COMMAND
+      ;;
+    update-network)
+      if [ -z "${1:-}" ]; then echo "Erro: <network-id> é obrigatório." >&2; exit 1; fi
+      if [ -z "${2:-}" ]; then echo "Erro: <json-data> é obrigatório." >&2; exit 1; fi
+      zt_api_call "POST" "/network/$1" "$2" | $JQ_COMMAND
+      ;;
+    delete-network)
+      if [ -z "${1:-}" ]; then echo "Erro: <network-id> é obrigatório." >&2; exit 1; fi
+      zt_api_call "DELETE" "/network/$1" | $JQ_COMMAND
+      ;;
+    
+    # --- Member ---
+    list-members)
+      if [ -z "${1:-}" ]; then echo "Erro: <network-id> é obrigatório." >&2; exit 1; fi
+      zt_api_call "GET" "/network/$1/member" | $JQ_COMMAND
+      ;;
+    get-member)
+      if [ -z "${1:-}" ]; then echo "Erro: <network-id> é obrigatório." >&2; exit 1; fi
+      if [ -z "${2:-}" ]; then echo "Erro: <member-id> é obrigatório." >&2; exit 1; fi
+      zt_api_call "GET" "/network/$1/member/$2" | $JQ_COMMAND
+      ;;
+    update-member)
+      if [ -z "${1:-}" ]; then echo "Erro: <network-id> é obrigatório." >&2; exit 1; fi
+      if [ -z "${2:-}" ]; then echo "Erro: <member-id> é obrigatório." >&2; exit 1; fi
+      if [ -z "${3:-}" ]; then echo "Erro: <json-data> é obrigatório." >&2; exit 1; fi
+      zt_api_call "POST" "/network/$1/member/$2" "$3" | $JQ_COMMAND
+      ;;
+    delete-member)
+      if [ -z "${1:-}" ]; then echo "Erro: <network-id> é obrigatório." >&2; exit 1; fi
+      if [ -z "${2:-}" ]; then echo "Erro: <member-id> é obrigatório." >&2; exit 1; fi
+      zt_api_call "DELETE" "/network/$1/member/$2" | $JQ_COMMAND
+      ;;
+
+    # --- User ---
+    get-my-user)
+      local USER_ID=$(get_my_user_id)
+      zt_api_call "GET" "/user/$USER_ID" | $JQ_COMMAND
+      ;;
+    update-my-user)
+      if [ -z "${1:-}" ]; then echo "Erro: <json-data> é obrigatório." >&2; exit 1; fi
+      local USER_ID=$(get_my_user_id)
+      zt_api_call "POST" "/user/$USER_ID" "$1" | $JQ_COMMAND
+      ;;
+    add-token)
+      if [ -z "${1:-}" ]; then echo "Erro: <json-data> é obrigatório." >&2; exit 1; fi
+      local USER_ID=$(get_my_user_id)
+      zt_api_call "POST" "/user/$USER_ID/token" "$1" | $JQ_COMMAND
+      ;;
+    delete-token)
+      if [ -z "${1:-}" ]; then echo "Erro: <token-name> é obrigatório." >&2; exit 1; fi
+      local USER_ID=$(get_my_user_id)
+      zt_api_call "DELETE" "/user/$USER_ID/token/$1" | $JQ_COMMAND
+      ;;
+    delete-my-user)
+      echo "!! CUIDADO !! Esta ação é irreversível e deletará sua conta e todas as networks." >&2
+      read -p "Digite 'DELETAR MINHA CONTA' para confirmar: " CONFIRM
+      if [ "$CONFIRM" == "DELETAR MINHA CONTA" ]; then
+        local USER_ID=$(get_my_user_id)
+        zt_api_call "DELETE" "/user/$USER_ID"
+        echo "Conta deletada."
+      else
+        echo "Cancelado."
+      fi
+      ;;
+
+    # --- Organization ---
+    get-my-org)
+      zt_api_call "GET" "/org" | $JQ_COMMAND
+      ;;
+    get-org-by-id)
+      if [ -z "${1:-}" ]; then echo "Erro: <org-id> é obrigatório." >&2; exit 1; fi
+      zt_api_call "GET" "/org/$1" | $JQ_COMMAND
+      ;;
+    list-org-members)
+      if [ -z "${1:-}" ]; then echo "Erro: <org-id> é obrigatório." >&2; exit 1; fi
+      zt_api_call "GET" "/org/$1/user" | $JQ_COMMAND
+      ;;
+    list-invitations)
+      zt_api_call "GET" "/org-invitation" | $JQ_COMMAND
+      ;;
+    invite-user)
+      if [ -z "${1:-}" ]; then echo "Erro: <json-data> é obrigatório. Ex: '{\"email\":\"a@b.com\"}'" >&2; exit 1; fi
+      zt_api_call "POST" "/org-invitation" "$1" | $JQ_COMMAND
+      ;;
+    get-invitation)
+      if [ -z "${1:-}" ]; then echo "Erro: <invite-id> é obrigatório." >&2; exit 1; fi
+      zt_api_call "GET" "/org-invitation/$1" | $JQ_COMMAND
+      ;;
+    accept-invitation)
+      if [ -z "${1:-}" ]; then echo "Erro: <invite-id> é obrigatório." >&2; exit 1; fi
+      zt_api_call "POST" "/org-invitation/$1" | $JQ_COMMAND
+      ;;
+    decline-invitation)
+      if [ -z "${1:-}" ]; then echo "Erro: <invite-id> é obrigatório." >&2; exit 1; fi
+      zt_api_call "DELETE" "/org-invitation/$1" | $JQ_COMMAND
+      ;;
+
+    # --- Util ---
+    get-random-token)
+      zt_api_call "GET" "/randomToken" | $JQ_COMMAND
+      ;;
+    
+    # --- Help ou Comando Desconhecido ---
+    -h|--help|help)
+      show_usage
+      ;;
+    *)
+      echo "Erro: Comando desconhecido '$COMMAND'" >&2
+      show_usage
+      exit 1
+      ;;
+  esac
+}
+
+# --- Executa o Script né ---
+# Passa todos os argumentos do script para a função main
+main "$@"
